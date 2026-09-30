@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: neo-workflow-test
+  datasource:
+    # Tests run against in-memory H2: no Postgres, no external services.
+    url: jdbc:h2:mem:flowable-test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+
+flowable:
+  database-schema-update: true
+  async-executor-activate: false
+  history-level: full
+  idm:
+    enabled: false
+
+neo:
+  internal:
+    token: test-token
+    domain-base-url: http://localhost:65535

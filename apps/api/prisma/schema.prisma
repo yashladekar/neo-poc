@@ -1,0 +1,240 @@
+// Application/domain schema.
+//
+// The datasource URL pins `?schema=app`, so every table below lives in the `app`
+// schema. The `app` role has no access to the `flowable` schema, and vice versa:
+// the workflow engine and the business data are physically isolated.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TravelRequestStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_MANAGER
+  PENDING_FINANCE
+  PENDING_EMPLOYEE
+  APPROVED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+enum TravelCategory {
+  TRANSPORT
+  LODGING
+  MEALS
+  OTHER
+}
+
+enum DecisionKind {
+  APPROVED
+  REJECTED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  name         String
+  passwordHash String   @map("password_hash")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  memberships       Membership[]
+  submittedRequests TravelRequest[]    @relation("SubmittedRequests")
+  decisions         ApprovalDecision[] @relation("DecisionActor")
+  notifications     Notification[]
+  attachments       Attachment[]       @relation("UploadedAttachments")
+
+  @@map("users")
+}
+
+model Group {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  name        String
+  description String?
+  permissions String[] @default([])
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  memberships Membership[]
+
+  @@map("groups")
+}
+
+model Membership {
+  userId    String   @map("user_id") @db.Uuid
+  groupId   String   @map("group_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@map("memberships")
+}
+
+model TravelRequest {
+  id                 String              @id @default(uuid()) @db.Uuid
+  reference          String              @unique
+  title              String
+  purpose            String?
+  destination        String
+  startDate          DateTime            @map("start_date") @db.Date
+  endDate            DateTime            @map("end_date") @db.Date
+  totalAmount        Decimal             @default(0) @map("total_amount") @db.Decimal(12, 2)
+  currency           String              @default("USD")
+  hasReceipts        Boolean             @default(false) @map("has_receipts")
+  status             TravelRequestStatus @default(DRAFT)
+  workflowInstanceId String?             @map("workflow_instance_id")
+  workflowStatus     String?             @map("workflow_status")
+  currentTaskKey     String?             @map("current_task_key")
+  bookingReference   String?             @map("booking_reference")
+  submittedById      String              @map("submitted_by_id") @db.Uuid
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  submittedBy     User               @relation("SubmittedRequests", fields: [submittedById], references: [id])
+  items           TravelRequestItem[]
+  decisions       ApprovalDecision[]
+  attachments     Attachment[]
+  auditEvents     AuditEvent[]
+  integrationLogs IntegrationLog[]
+
+  @@index([status])
+  @@index([submittedById])
+  @@map("travel_requests")
+}
+
+model TravelRequestItem {
+  id              String         @id @default(uuid()) @db.Uuid
+  requestId       String         @map("request_id") @db.Uuid
+  category        TravelCategory
+  description     String
+  amount          Decimal        @db.Decimal(12, 2)
+  incurredOn      DateTime?      @map("incurred_on") @db.Date
+  receiptRequired Boolean        @default(false) @map("receipt_required")
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  request TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@map("travel_request_items")
+}
+
+model ApprovalDecision {
+  id        String       @id @default(uuid()) @db.Uuid
+  requestId String       @map("request_id") @db.Uuid
+  taskId    String?      @map("task_id")
+  taskKey   String       @map("task_key")
+  decision  DecisionKind
+  comment   String?
+  actorId   String       @map("actor_id") @db.Uuid
+  decidedAt DateTime     @default(now()) @map("decided_at")
+
+  request TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actor   User          @relation("DecisionActor", fields: [actorId], references: [id])
+
+  @@index([requestId])
+  @@map("approval_decisions")
+}
+
+model Attachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  requestId    String?  @map("request_id") @db.Uuid
+  name         String
+  contentType  String   @map("content_type")
+  size         Int
+  storageKey   String   @map("storage_key")
+  uploadedById String   @map("uploaded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  request    TravelRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  uploadedBy User           @relation("UploadedAttachments", fields: [uploadedById], references: [id])
+
+  @@index([requestId])
+  @@map("attachments")
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  type      String
+  title     String
+  body      String
+  channel   String   @default("in_app")
+  read      Boolean  @default(false)
+  refType   String?  @map("ref_type")
+  refId     String?  @map("ref_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+model AuditEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  action     String
+  actorId    String?  @map("actor_id")
+  data       Json?
+  requestId  String?  @map("request_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  request TravelRequest? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([entityType, entityId])
+  @@index([requestId])
+  @@map("audit_events")
+}
+
+model OutboxJob {
+  id             String       @id @default(uuid()) @db.Uuid
+  type           String
+  payload        Json
+  status         OutboxStatus @default(PENDING)
+  attempts       Int          @default(0)
+  idempotencyKey String?      @unique @map("idempotency_key")
+  availableAt    DateTime     @default(now()) @map("available_at")
+  processedAt    DateTime?    @map("processed_at")
+  lastError      String?      @map("last_error")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@index([status, availableAt])
+  @@map("outbox_jobs")
+}
+
+model IntegrationLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  requestId       String?  @map("request_id") @db.Uuid
+  provider        String
+  operation       String
+  status          String
+  requestPayload  Json?    @map("request_payload")
+  responsePayload Json?    @map("response_payload")
+  error           String?
+  durationMs      Int?     @map("duration_ms")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  request TravelRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+
+  @@index([requestId])
+  @@map("integration_logs")
+}

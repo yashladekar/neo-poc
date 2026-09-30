@@ -7,7 +7,9 @@
     "dev": "turbo dev",
     "lint": "turbo lint",
     "format": "turbo format",
-    "typecheck": "turbo typecheck"
+    "typecheck": "turbo typecheck",
+    "verify": "npm run typecheck && npm run lint && npm run build && bash scripts/verify-db-isolation.sh && bash scripts/e2e-travel-request.sh",
+    "test:workflow": "docker run --rm -v \"$PWD/apps/workflow\":/app -w /app -v neo-m2:/root/.m2 maven:3.9-eclipse-temurin-21 mvn -B test"
   },
   "devDependencies": {
     "@workspace/eslint-config": "*",

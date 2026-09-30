@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn"
+             typeLanguage="http://www.w3.org/2001/XMLSchema"
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://neo.com/workflow">
+
+    <!--
+      Travel Request Approval - replicates the standard Appian travel-expense
+      showcase (Add Business Trip -> receipts branch -> supervisor approval ->
+      finance approval for high values -> write records), modelled as BPMN 2.0.
+
+      Service tasks never touch business data: every one delegates back to the
+      NestJS application layer via #{domainEvents.*}, which owns all domain
+      writes, notifications and audit.
+    -->
+    <process id="travelRequestApproval" name="Travel Request Approval" isExecutable="true">
+
+        <startEvent id="start" name="Request submitted"/>
+
+        <serviceTask id="recordSubmission"
+                     name="Record submission"
+                     flowable:expression="#{domainEvents.handle(execution, 'SUBMITTED')}"/>
+
+        <exclusiveGateway id="hasReceiptsGateway" name="Receipts attached?" default="flow-no-receipts"/>
+
+        <!-- Appian 'Text Doc From Template' smart service: generate + store the receipt document. -->
+        <serviceTask id="generateReceiptDocument"
+                     name="Generate receipt document"
+                     flowable:expression="#{domainEvents.handle(execution, 'RECEIPT_DOCUMENT_READY')}"
+                     flowable:async="true"/>
+
+        <userTask id="employeeSignAndSubmit"
+                  name="Sign and submit receipts"
+                  flowable:candidateGroups="${employeeGroup}"
+                  flowable:formKey="employeeSignAndSubmit"/>
+
+        <serviceTask id="notifyManager"
+                     name="Notify supervisor"
+                     flowable:expression="#{domainEvents.handle(execution, 'MANAGER_APPROVAL_REQUESTED')}"/>
+
+        <userTask id="managerApproval"
+                  name="Supervisor approval"
+                  flowable:candidateGroups="${supervisorGroup}"
+                  flowable:formKey="managerApproval"
+                  flowable:dueDate="${managerReminderDuration}"/>
+
+        <boundaryEvent id="managerReminderTimer" name="Reminder" attachedToRef="managerApproval" cancelActivity="false">
+            <timerEventDefinition>
+                <timeDuration>${managerReminderDuration}</timeDuration>
+            </timerEventDefinition>
+        </boundaryEvent>
+
+        <serviceTask id="remindManager"
+                     name="Send reminder"
+                     flowable:expression="#{domainEvents.handle(execution, 'MANAGER_REMINDER')}"/>
+
+        <boundaryEvent id="managerEscalationTimer" name="Escalation" attachedToRef="managerApproval" cancelActivity="true">
+            <timerEventDefinition>
+                <timeDuration>${managerEscalationDuration}</timeDuration>
+            </timerEventDefinition>
+        </boundaryEvent>
+
+        <serviceTask id="escalateManager"
+                     name="Escalate to management"
+                     flowable:expression="#{domainEvents.handle(execution, 'MANAGER_ESCALATION')}"/>
+
+        <exclusiveGateway id="managerDecisionGateway" name="Supervisor decision" default="flow-manager-not-approved"/>
+
+        <serviceTask id="evaluatePolicy"
+                     name="Evaluate travel policy"
+                     flowable:expression="#{domainEvents.evaluatePolicy(execution)}"/>
+
+        <exclusiveGateway id="financeGateway" name="Finance approval required?" default="flow-no-finance"/>
+
+        <serviceTask id="notifyFinance"
+                     name="Notify finance"
+                     flowable:expression="#{domainEvents.handle(execution, 'FINANCE_APPROVAL_REQUESTED')}"/>
+
+        <userTask id="financeApproval"
+                  name="Finance approval"
+                  flowable:candidateGroups="${financeGroup}"
+                  flowable:formKey="financeApproval"/>
+
+        <serviceTask id="finalizeRequest"
+                     name="Finalize request"
+                     flowable:expression="#{domainEvents.finalizeRequest(execution)}"/>
+
+        <exclusiveGateway id="outcomeGateway" name="Outcome" default="flow-outcome-rejected"/>
+
+        <!-- Appian 'Integration' object: confirm travel with the booking provider. -->
+        <serviceTask id="confirmBooking"
+                     name="Confirm travel booking"
+                     flowable:expression="#{domainEvents.confirmBooking(execution)}"/>
+
+        <serviceTask id="notifyOutcome"
+                     name="Notify approval"
+                     flowable:expression="#{domainEvents.handle(execution, 'FINAL_OUTCOME')}"/>
+
+        <serviceTask id="notifyRejected"
+                     name="Notify rejection"
+                     flowable:expression="#{domainEvents.handle(execution, 'FINAL_OUTCOME')}"/>
+
+        <endEvent id="completed" name="Approved"/>
+
+        <endEvent id="rejected" name="Rejected"/>
+
+        <endEvent id="reminderSent" name="Reminder sent"/>
+
+        <!-- main flow -->
+        <sequenceFlow id="flow-start" sourceRef="start" targetRef="recordSubmission"/>
+        <sequenceFlow id="flow-recorded" sourceRef="recordSubmission" targetRef="hasReceiptsGateway"/>
+        <sequenceFlow id="flow-has-receipts" sourceRef="hasReceiptsGateway" targetRef="generateReceiptDocument">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${execution.getVariable('hasReceipts') == true}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flow-no-receipts" sourceRef="hasReceiptsGateway" targetRef="notifyManager"/>
+        <sequenceFlow id="flow-document-ready" sourceRef="generateReceiptDocument" targetRef="employeeSignAndSubmit"/>
+        <sequenceFlow id="flow-receipts-signed" sourceRef="employeeSignAndSubmit" targetRef="notifyManager"/>
+        <sequenceFlow id="flow-notified-manager" sourceRef="notifyManager" targetRef="managerApproval"/>
+        <sequenceFlow id="flow-manager-decided" sourceRef="managerApproval" targetRef="managerDecisionGateway"/>
+        <sequenceFlow id="flow-manager-approved" sourceRef="managerDecisionGateway" targetRef="evaluatePolicy">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${execution.getVariable('approved') == true}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flow-manager-not-approved" sourceRef="managerDecisionGateway" targetRef="finalizeRequest"/>
+        <sequenceFlow id="flow-policy-evaluated" sourceRef="evaluatePolicy" targetRef="financeGateway"/>
+        <sequenceFlow id="flow-needs-finance" sourceRef="financeGateway" targetRef="notifyFinance">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${execution.getVariable('requiresFinance') == true}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flow-no-finance" sourceRef="financeGateway" targetRef="finalizeRequest"/>
+        <sequenceFlow id="flow-finance-notified" sourceRef="notifyFinance" targetRef="financeApproval"/>
+        <sequenceFlow id="flow-finance-decided" sourceRef="financeApproval" targetRef="finalizeRequest"/>
+        <sequenceFlow id="flow-finalized" sourceRef="finalizeRequest" targetRef="outcomeGateway"/>
+        <sequenceFlow id="flow-outcome-approved" sourceRef="outcomeGateway" targetRef="confirmBooking">
+            <conditionExpression xsi:type="tFormalExpression"><![CDATA[${execution.getVariable('approved') == true}]]></conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flow-booking-confirmed" sourceRef="confirmBooking" targetRef="notifyOutcome"/>
+        <sequenceFlow id="flow-outcome-rejected" sourceRef="outcomeGateway" targetRef="notifyRejected"/>
+        <sequenceFlow id="flow-approved-end" sourceRef="notifyOutcome" targetRef="completed"/>
+        <sequenceFlow id="flow-rejected-end" sourceRef="notifyRejected" targetRef="rejected"/>
+
+        <!-- timer branches -->
+        <sequenceFlow id="flow-reminder" sourceRef="managerReminderTimer" targetRef="remindManager"/>
+        <sequenceFlow id="flow-reminder-end" sourceRef="remindManager" targetRef="reminderSent"/>
+        <sequenceFlow id="flow-escalation" sourceRef="managerEscalationTimer" targetRef="escalateManager"/>
+        <sequenceFlow id="flow-escalated" sourceRef="escalateManager" targetRef="finalizeRequest"/>
+    </process>
+</definitions>

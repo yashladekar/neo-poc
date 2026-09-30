@@ -1,0 +1,40 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: neo-workflow
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/neo}
+    username: ${SPRING_DATASOURCE_USERNAME:flowable}
+    password: ${SPRING_DATASOURCE_PASSWORD:flowable}
+    driver-class-name: org.postgresql.Driver
+
+flowable:
+  # The engine owns the dedicated `flowable` schema (ACT_* tables). It has no
+  # grants on the `app` schema, so it can never touch business data.
+  database-schema: flowable
+  database-schema-update: true
+  async-executor-activate: true
+  # Snappier job acquisition so async service tasks / timers settle quickly.
+  async-executor-default-async-job-acquire-wait-time: 1s
+  async-executor-default-timer-job-acquire-wait-time: 1s
+  # Full history gives Appian-like process/task/variable audit via ACT_HI_*.
+  history-level: full
+  # The Identity engine is disabled: our NestJS Identity module is the single
+  # source of truth. Flowable treats assignee/candidateGroups as opaque strings.
+  idm:
+    enabled: false
+  process:
+    definition-cache-limit: 128
+
+neo:
+  internal:
+    token: ${WORKFLOW_INTERNAL_TOKEN:dev-internal-token}
+    domain-base-url: ${DOMAIN_BASE_URL:http://localhost:3001}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

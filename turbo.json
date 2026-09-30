@@ -1,11 +1,28 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "globalEnv": [
+    "NODE_ENV",
+    "PORT",
+    "DATABASE_URL",
+    "JWT_SECRET",
+    "JWT_EXPIRES_IN_SECONDS",
+    "WORKFLOW_BASE_URL",
+    "WORKFLOW_INTERNAL_TOKEN",
+    "WORKFLOW_PROCESS_KEY",
+    "FINANCE_APPROVAL_THRESHOLD",
+    "MANAGER_REMINDER_DURATION",
+    "MANAGER_ESCALATION_DURATION",
+    "RECONCILIATION_INTERVAL_SECONDS",
+    "STORAGE_DIR",
+    "WEB_ORIGIN",
+    "API_BASE_URL"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".next/**", "!.next/cache/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },
     "lint": {
       "dependsOn": ["^lint"]
