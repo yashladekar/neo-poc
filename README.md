@@ -157,14 +157,43 @@ docker-compose.yml     Postgres 17 + workflow service
 
 ## Running it
 
-Prerequisites: Node 20+, Docker.
+Prerequisites: Node 20+, pnpm, Docker.
 
 ```bash
-npm install
+pnpm install
 docker compose up -d                            # Postgres + Flowable workflow service (:8081)
-npm run db:push  --workspace api                # create the app schema
-npm run db:seed  --workspace api                # groups + demo users
-npm run dev                                      # api (:3001) + web (:3000)
+pnpm --filter api db:push                        # create the app schema
+pnpm --filter api db:seed                        # groups + demo users
+pnpm dev                                         # api (:3001) + web (:3000)
+```
+
+### Without Docker (local Postgres + Maven)
+
+Prerequisites: Node 20+, pnpm, a local PostgreSQL, plus JDK 21+ and Maven for the workflow service.
+
+1. Create the `neo` database and bootstrap the roles/schemas (as the Postgres superuser):
+
+```bash
+createdb -U postgres neo
+psql -U postgres -d neo -f infra/postgres/init/01-init.sql
+```
+
+2. Run the workflow service against that database (default port `5432`). It is a plain Spring
+   Boot app, so Maven runs it directly — no container needed:
+
+```bash
+mvn -f apps/workflow/pom.xml -DskipTests spring-boot:run \
+  -Dspring-boot.run.arguments="--spring.datasource.url=jdbc:postgresql://localhost:5432/neo --spring.datasource.username=flowable --spring.datasource.password=flowable"
+```
+
+3. Point `apps/api/.env` at the same database, then create the app schema, seed and start the app.
+   Note the `@workspace/contracts` package ships compiled output, so build it once before `dev`:
+
+```bash
+pnpm --filter @workspace/contracts build
+pnpm --filter api db:push
+pnpm --filter api db:seed
+pnpm dev
 ```
 
 Open <http://localhost:3000> and sign in with any of (password `password`):
@@ -186,14 +215,14 @@ whenever the notification stream reports a change.
 ### Verifying
 
 ```bash
-npm run verify           # typecheck + lint + build + schema isolation + end-to-end workflow
-npm run test:workflow    # engine-side JUnit tests (in-memory H2, no external services)
+pnpm run verify          # typecheck + lint + build + schema isolation + end-to-end workflow
+pnpm run test:workflow   # engine-side JUnit tests (in-memory H2, no external services)
 ```
 
-Individually, with the stack up (`docker compose up -d`, `npm run dev --workspace api`):
+Individually, with the stack up (`docker compose up -d`, `pnpm --filter api dev`):
 
 ```bash
-npm run typecheck && npm run lint && npm run build   # all workspaces
+pnpm run typecheck && pnpm run lint && pnpm run build   # all workspaces
 bash scripts/verify-db-isolation.sh                  # engine/domain schema isolation
 bash scripts/e2e-travel-request.sh                   # both scenarios, integrations, attachments, authz
 ```
@@ -205,7 +234,7 @@ trip to the UI rather than becoming a 503.
 The SLA timers can be shortened for testing:
 
 ```bash
-MANAGER_REMINDER_DURATION=PT4S MANAGER_ESCALATION_DURATION=PT9S npm run dev --workspace api
+MANAGER_REMINDER_DURATION=PT4S MANAGER_ESCALATION_DURATION=PT9S pnpm --filter api dev
 ```
 
 ---

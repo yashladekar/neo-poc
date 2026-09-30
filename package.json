@@ -8,23 +8,19 @@
     "lint": "turbo lint",
     "format": "turbo format",
     "typecheck": "turbo typecheck",
-    "verify": "npm run typecheck && npm run lint && npm run build && bash scripts/verify-db-isolation.sh && bash scripts/e2e-travel-request.sh",
+    "verify": "pnpm run typecheck && pnpm run lint && pnpm run build && bash scripts/verify-db-isolation.sh && bash scripts/e2e-travel-request.sh",
     "test:workflow": "docker run --rm -v \"$PWD/apps/workflow\":/app -w /app -v neo-m2:/root/.m2 maven:3.9-eclipse-temurin-21 mvn -B test"
   },
   "devDependencies": {
-    "@workspace/eslint-config": "*",
-    "@workspace/typescript-config": "*",
+    "@workspace/eslint-config": "workspace:*",
+    "@workspace/typescript-config": "workspace:*",
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "turbo": "^2.9.18",
     "typescript": "^5"
   },
-  "packageManager": "npm@10.9.4",
+  "packageManager": "pnpm@11.9.0",
   "engines": {
     "node": ">=20"
-  },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ]
+  }
 }

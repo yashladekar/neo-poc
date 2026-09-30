@@ -3,7 +3,7 @@
 # End-to-end workflow test for the Travel Request Approval process.
 # Drives the real API, so it needs the full stack running:
 #   docker compose up -d          # Postgres + Flowable workflow service
-#   npm run dev --workspace api   # API on :3001
+#   pnpm --filter api dev         # API on :3001
 #
 # Scenario A: below-threshold request, no receipts  -> supervisor -> APPROVED
 # Scenario B: above-threshold request, receipts     -> employee sign-off ->
